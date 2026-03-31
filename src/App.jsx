@@ -286,6 +286,59 @@ export default function App() {
     () => Object.values(posCharInterestLikertCounts).reduce((a, b) => a + b, 0),
     [posCharInterestLikertCounts]
   )
+  const ipInterestPurchaseIntentRows = useMemo(() => {
+    return CHAR_LIKERT_ORDER.map(level => {
+      const group = posGroup.filter(r => matchCharLikertLevel(r.char_interest) === level)
+      const n = group.length
+      const pos = group.filter(r => /있다/.test(r.mp_bought) || /있다/.test(r.mp_will_buy)).length
+      return {
+        level,
+        n,
+        pos,
+        pct: n > 0 ? Math.round((pos / n) * 100) : 0,
+      }
+    })
+  }, [posGroup])
+  const ipInterestWillReasonHeatmap = useMemo(() => {
+    const reasonCounts = runCounts(
+      posGroup.filter(r => r.mp_will_buy_reason),
+      'mp_will_buy_reason'
+    )
+    const sortedReasons = Object.entries(reasonCounts).sort((a, b) => b[1] - a[1])
+    const topReasons = sortedReasons.slice(0, 6).map(([reason]) => reason)
+    const hasEtc = topReasons.length < sortedReasons.length
+    const overallDen = posGroup.filter(r => r.mp_will_buy_reason).length
+
+    const rows = ['전체', '전혀 관심 없음', '별로 관심 없음', '보통', '약간 관심 있음', '매우 관심 있음'].map(rowLabel => {
+      const rowMembers = posGroup.filter(r => {
+        if (!r.mp_will_buy_reason) return false
+        if (rowLabel === '전체') return true
+        return matchCharLikertLevel(r.char_interest) === rowLabel
+      })
+      const n = rowMembers.length
+      const counts = {}
+      topReasons.forEach(reason => {
+        counts[reason] = rowMembers.filter(r => r.mp_will_buy_reason === reason).length
+      })
+      const etcCount =
+        hasEtc ? rowMembers.filter(r => !topReasons.includes(r.mp_will_buy_reason)).length : 0
+      return { label: rowLabel, n, counts, etcCount }
+    })
+
+    let maxPct = 0
+    rows.forEach(row => {
+      topReasons.forEach(reason => {
+        const v = row.counts[reason] || 0
+        const pct = overallDen > 0 ? (v / overallDen) * 100 : 0
+        if (pct > maxPct) maxPct = pct
+      })
+      if (hasEtc) {
+        const etcPct = overallDen > 0 ? (row.etcCount / overallDen) * 100 : 0
+        if (etcPct > maxPct) maxPct = etcPct
+      }
+    })
+    return { topReasons, rows, hasEtc, maxPct: maxPct || 1, overallDen }
+  }, [posGroup])
   const posCharReasonHeatmap = useMemo(() => {
     const reasonCounts = runCounts(posGroup.filter(r => r.char_interest_reason), 'char_interest_reason')
     const topReasons = Object.entries(reasonCounts)
@@ -1479,6 +1532,7 @@ export default function App() {
           </div>
         )}
         {behaviorMode === 'all' && (
+        <>
         <div className="card" style={{ marginTop: '16px' }}>
           <h3>캐릭터 IP 관심도 × 자주 쓰는 기능 (히트맵)</h3>
           <div style={{ fontSize: '10px', color: '#6b6b65', marginBottom: '6px' }}>
@@ -1570,6 +1624,181 @@ export default function App() {
             </div>
           )}
         </div>
+        <div className="card" style={{ marginTop: '16px' }}>
+          <h3>캐릭터 IP 관심도별 마이핑 구매/의향 비율</h3>
+          <div style={{ fontSize: '11px', color: '#6b6b65', marginTop: '4px', marginBottom: '8px' }}>
+            분자: 마이핑 구매 경험 또는 구매 의향(있다) · 분모: 관심도별 응답자 수
+          </div>
+          {ipInterestPurchaseIntentRows.every(r => r.n === 0) ? (
+            <div style={{ color: '#aaa', fontSize: '12px' }}>관심도 응답 없음</div>
+          ) : (
+            <>
+              <div className="chart-wrap" style={{ height: '260px' }}>
+                <Bar
+                  data={{
+                    labels: ipInterestPurchaseIntentRows.map(r => r.level),
+                    datasets: [
+                      {
+                        label: '구매/의향 비율(%)',
+                        data: ipInterestPurchaseIntentRows.map(r => r.pct),
+                        backgroundColor: ipInterestPurchaseIntentRows.map(r => CHAR_LIKERT_COLORS[r.level]),
+                        borderRadius: 6,
+                      },
+                    ],
+                  }}
+                  options={{
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                      legend: { display: false },
+                      tooltip: {
+                        callbacks: {
+                          label: item => {
+                            const row = ipInterestPurchaseIntentRows[item.dataIndex]
+                            return ` ${row.pct}% (${row.pos}/${row.n}명)`
+                          },
+                        },
+                      },
+                    },
+                    scales: {
+                      x: { grid: { display: false } },
+                      y: {
+                        beginAtZero: true,
+                        max: 100,
+                        ticks: { callback: v => `${v}%` },
+                        grid: { color: '#f0efe8' },
+                      },
+                    },
+                  }}
+                />
+              </div>
+              <div style={{ marginTop: '10px' }}>
+                {ipInterestPurchaseIntentRows.map(row => (
+                  <div
+                    key={row.level}
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      gap: '8px',
+                      padding: '5px 0',
+                      fontSize: '11px',
+                      borderBottom: '1px solid #f0efe8',
+                    }}
+                  >
+                    <div style={{ color: '#1a1a18' }}>
+                      <span
+                        style={{
+                          display: 'inline-block',
+                          width: '8px',
+                          height: '8px',
+                          borderRadius: '2px',
+                          background: CHAR_LIKERT_COLORS[row.level],
+                          marginRight: '6px',
+                        }}
+                      />
+                      {row.level}
+                    </div>
+                    <div style={{ color: '#6b6b65', whiteSpace: 'nowrap' }}>
+                      {row.pct}% ({row.pos}/{row.n}명)
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+        <div className="card" style={{ marginTop: '16px' }}>
+          <h3>구매 의향 이유 × 캐릭터 IP 관심도 (히트맵)</h3>
+          <div style={{ fontSize: '10px', color: '#6b6b65', marginBottom: '6px' }}>
+            모든 셀의 비율은 구매 의향 이유 응답자 n={ipInterestWillReasonHeatmap.overallDen} 기준입니다.
+          </div>
+          {ipInterestWillReasonHeatmap.topReasons.length === 0 ? (
+            <div style={{ color: '#aaa', fontSize: '12px' }}>구매 의향 이유 응답 없음</div>
+          ) : (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px', minWidth: '760px' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid #e2e0d8' }}>
+                    <th style={{ textAlign: 'left', padding: '8px 6px', color: '#6b6b65', width: '170px' }}>관심도</th>
+                    <th style={{ textAlign: 'right', padding: '8px 6px', color: '#6b6b65', width: '66px' }}>n</th>
+                    {ipInterestWillReasonHeatmap.topReasons.map(reason => (
+                      <th key={reason} style={{ textAlign: 'left', padding: '8px 6px', color: '#6b6b65' }}>
+                        {reason.length > 18 ? `${reason.slice(0, 18)}…` : reason}
+                      </th>
+                    ))}
+                    {ipInterestWillReasonHeatmap.hasEtc && <th style={{ textAlign: 'left', padding: '8px 6px', color: '#6b6b65' }}>기타</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {ipInterestWillReasonHeatmap.rows.map(row => (
+                    <tr key={row.label} style={{ borderBottom: '1px solid #f0efe8' }}>
+                      <td style={{ padding: '8px 6px', color: '#1a1a18', fontWeight: row.label === '전체' ? 700 : 500 }}>{row.label}</td>
+                      <td style={{ padding: '8px 6px', textAlign: 'right', color: '#6b6b65' }}>{row.n}</td>
+                      {ipInterestWillReasonHeatmap.topReasons.map(reason => {
+                        const v = row.counts[reason] || 0
+                        const pct =
+                          ipInterestWillReasonHeatmap.overallDen > 0
+                            ? Math.round((v / ipInterestWillReasonHeatmap.overallDen) * 100)
+                            : 0
+                        const scaled = pct / ipInterestWillReasonHeatmap.maxPct
+                        const alpha = Math.min(0.88, Math.max(0.06, scaled * 0.88))
+                        return (
+                          <td key={reason} style={{ padding: '6px' }}>
+                            <div style={{ background: `rgba(83,74,183,${alpha})`, borderRadius: '4px', minHeight: '28px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: scaled >= 0.55 ? '#fff' : '#1a1a18', padding: '4px 6px', fontWeight: 600 }}>
+                              <span>{v}</span>
+                              <span>{pct}%</span>
+                            </div>
+                          </td>
+                        )
+                      })}
+                      {ipInterestWillReasonHeatmap.hasEtc && (
+                        <td style={{ padding: '6px' }}>
+                          <div
+                            style={{
+                              background: `rgba(83,74,183,${Math.min(
+                                0.88,
+                                Math.max(
+                                  0.06,
+                                  ((ipInterestWillReasonHeatmap.overallDen > 0
+                                    ? Math.round((row.etcCount / ipInterestWillReasonHeatmap.overallDen) * 100)
+                                    : 0) /
+                                    ipInterestWillReasonHeatmap.maxPct) * 0.88
+                                )
+                              )})`,
+                              borderRadius: '4px',
+                              minHeight: '28px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              color:
+                                ((ipInterestWillReasonHeatmap.overallDen > 0
+                                  ? Math.round((row.etcCount / ipInterestWillReasonHeatmap.overallDen) * 100)
+                                  : 0) /
+                                  ipInterestWillReasonHeatmap.maxPct) >= 0.55
+                                  ? '#fff'
+                                  : '#1a1a18',
+                              padding: '4px 6px',
+                              fontWeight: 600,
+                            }}
+                          >
+                            <span>{row.etcCount}</span>
+                            <span>
+                              {ipInterestWillReasonHeatmap.overallDen > 0
+                                ? Math.round((row.etcCount / ipInterestWillReasonHeatmap.overallDen) * 100)
+                                : 0}
+                              %
+                            </span>
+                          </div>
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+        </>
         )}
 
         <div style={{height:'40px'}}></div>
