@@ -231,12 +231,12 @@ export default function App() {
     return filtered
   }, [filtered])
   const behaviorCompareBase = useMemo(
-    () => filtered.filter(r => ['A1', 'A2', 'B1', 'B2'].includes(r.segment)),
-    [filtered]
+    () => filteredNoSeg.filter(r => ['A1', 'A2', 'B1', 'B2'].includes(r.segment)),
+    [filteredNoSeg]
   )
   const behaviorUnknownCount = useMemo(
-    () => filtered.filter(r => !['A1', 'A2', 'B1', 'B2'].includes(r.segment)).length,
-    [filtered]
+    () => filteredNoSeg.filter(r => !['A1', 'A2', 'B1', 'B2'].includes(r.segment)).length,
+    [filteredNoSeg]
   )
   const behaviorPosGroup = useMemo(
     () => behaviorCompareBase.filter(r => r.segment === 'A1' || r.segment === 'B1'),
